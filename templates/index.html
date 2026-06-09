@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ReelShot Downloader</title>
+    <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary-color: #007AFF;
+            --bg-gradient: linear-gradient(135deg, #ff9a9e 0%, #fad0c4 99%, #fad0c4 100%);
+            --glass-bg: rgba(255, 255, 255, 0.7);
+            --glass-border: rgba(255, 255, 255, 0.4);
+            --text-color: #1d1d1f;
+            --text-secondary: #86868b;
+        }
+
+        * {
+            box-sizing: border-box;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body {
+            font-family: 'Prompt', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(-45deg, #ee7752, #e73c7e, #23a6d5, #23d5ab);
+            background-size: 400% 400%;
+            animation: gradient 15s ease infinite;
+        }
+
+        @keyframes gradient {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+
+        .container {
+            width: 90%;
+            max-width: 440px;
+            padding: 40px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(20px) saturate(180%);
+            -webkit-backdrop-filter: blur(20px) saturate(180%);
+            border-radius: 36px;
+            border: 1px solid var(--glass-border);
+            box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.15);
+            text-align: center;
+        }
+
+        h1 {
+            font-weight: 600;
+            font-size: 28px;
+            color: var(--text-color);
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+        }
+
+        p.subtitle {
+            color: var(--text-secondary);
+            font-weight: 400;
+            font-size: 15px;
+            margin-bottom: 32px;
+        }
+
+        .input-group {
+            margin-bottom: 16px;
+            text-align: left;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-left: 16px;
+            margin-bottom: 6px;
+        }
+
+        input {
+            width: 100%;
+            padding: 14px 20px;
+            background: rgba(255, 255, 255, 0.5);
+            border: 1px solid rgba(0, 0, 0, 0.05);
+            border-radius: 18px;
+            font-size: 16px;
+            font-family: 'Prompt', sans-serif;
+            color: var(--text-color);
+            outline: none;
+            transition: all 0.3s ease;
+        }
+
+        input:focus {
+            background: white;
+            box-shadow: 0 0 0 4px rgba(0, 122, 255, 0.15);
+            border-color: var(--primary-color);
+        }
+
+        button {
+            width: 100%;
+            padding: 16px;
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 17px;
+            font-weight: 600;
+            font-family: 'Prompt', sans-serif;
+            margin-top: 16px;
+            transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s;
+            box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);
+        }
+
+        button:hover {
+            background-color: #0066d6;
+        }
+
+        button:active {
+            transform: scale(0.97);
+        }
+
+        #results {
+            margin-top: 24px;
+            font-size: 14px;
+            color: var(--text-secondary);
+            min-height: 20px;
+        }
+
+        .loader {
+            display: none;
+            width: 24px;
+            height: 24px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+            margin: 0 auto;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .btn-content.hidden {
+            display: none;
+        }
+
+        .loading-text.visible {
+            display: flex;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>ReelShot</h1>
+        <p class="subtitle">ดาวน์โหลดตอนทั้งหมดได้ง่ายๆ ในคลิกเดียว</p>
+        
+        <div class="input-group">
+            <label>Token</label>
+            <input type="text" id="token" placeholder="ใส่ Token" value="seriesjeen_54dd5ff653dc3a098d87a1d23012ab6e96562890f8f69776">
+        </div>
+
+        <div class="input-group">
+            <label>Series ID</label>
+            <input type="text" id="series_id" placeholder="ตัวอย่าง: 1001">
+        </div>
+
+        <button id="downloadBtn" onclick="fetchEpisodes()">
+            <span class="btn-content">ดึงข้อมูลและดาวน์โหลด</span>
+            <div class="loading-text">
+                <div class="loader"></div>
+                <span>กำลังดึงข้อมูล...</span>
+            </div>
+        </button>
+
+        <div id="results"></div>
+    </div>
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>
