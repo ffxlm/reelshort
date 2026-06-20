@@ -1,0 +1,6 @@
+node_modules/
+downloads/
+temp_ep_*.ts
+task_state.json
+concat_list.txt
+.env

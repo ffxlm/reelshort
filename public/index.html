@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reelshort Custom Downloader</title>
+  <!-- Google Fonts for Claude aesthetic -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,500;0,8..60,600;1,8..60,400&display=swap" rel="stylesheet">
+  <!-- CSS Styling -->
+  <link rel="stylesheet" href="style.css">
+  <!-- hls.js for playing .m3u8 files on all browsers -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+</head>
+<body>
+  <div class="app-container">
+    
+    <!-- Header -->
+    <header class="app-header">
+      <h1 class="serif-title">Reelshort custom downloader</h1>
+      <p class="subtitle">Visually apply blur overlays, configure anti-copyright parameters, and merge episodes on VPS.</p>
+    </header>
+
+    <div class="main-layout">
+      
+      <!-- Left Column: Video Preview and Bounding Box Canvas -->
+      <div class="left-column card">
+        <h2 class="section-title">Video blur selector</h2>
+        <p class="description">Click and drag over the video preview below to draw a box covering the watermark or icon.</p>
+        
+        <div class="video-wrapper">
+          <video id="preview-video" muted playsinline></video>
+          <!-- Absolute-positioned interactive canvas overlay -->
+          <canvas id="canvas-overlay"></canvas>
+          <div id="video-placeholder" class="placeholder-overlay">
+            <p>Fetch a series to load the video preview</p>
+          </div>
+        </div>
+
+        <div class="video-meta-row">
+          <div class="meta-item">
+            <span class="meta-label">Selected Blur Region:</span>
+            <span id="coords-display" class="meta-val">None (No Blur)</span>
+          </div>
+          <button id="clear-blur-btn" class="btn btn-secondary btn-sm" disabled>Clear Blur Box</button>
+        </div>
+
+        <!-- Generated Command Preview -->
+        <div class="command-box">
+          <span class="box-label">Live FFmpeg Command Preview (Single Episode Filter):</span>
+          <code id="cmd-preview">ffmpeg -i "input.m3u8" -c:v libx264 -preset ultrafast -c:a aac output.mp4</code>
+        </div>
+      </div>
+
+      <!-- Right Column: API Settings, Filters, Status -->
+      <div class="right-column">
+        
+        <!-- API Setup Card -->
+        <div class="card settings-card">
+          <h2 class="section-title">API Connection</h2>
+          <div class="input-group">
+            <label for="api-token">Bearer Authorization Token</label>
+            <input type="password" id="api-token" placeholder="Bearer seriesjeen_..." value="">
+          </div>
+          <div class="input-group">
+            <label for="series-id">Series ID</label>
+            <input type="text" id="series-id" placeholder="e.g. 699e6cd879115e32f206e361" value="">
+          </div>
+          <button id="fetch-series-btn" class="btn btn-primary">Fetch Series Episodes</button>
+        </div>
+
+        <!-- Series Selector Card (Hidden initially) -->
+        <div class="card series-card hidden" id="series-info-card">
+          <h2 class="section-title text-accent" id="series-title">Series Name</h2>
+          <p id="episode-count-info" class="text-muted">Total episodes found: 0</p>
+          
+          <div class="episode-selector-wrapper">
+            <label for="episode-select">Preview Episode File:</label>
+            <select id="episode-select">
+              <!-- Dynamically populated -->
+            </select>
+          </div>
+        </div>
+
+        <!-- FFmpeg Customization Panel -->
+        <div class="card filters-card">
+          <h2 class="section-title">Anti-Copyright settings</h2>
+          
+          <!-- Speed Factor Slider -->
+          <div class="filter-item">
+            <div class="slider-header">
+              <label for="speed-slider">Video/Audio Speed factor</label>
+              <span class="slider-value" id="speed-val">1.03x</span>
+            </div>
+            <input type="range" id="speed-slider" min="1.00" max="1.10" step="0.01" value="1.03">
+            <p class="field-desc">Speeds up video and audio (Recommended: 1.02x - 1.05x for natural feel).</p>
+          </div>
+
+          <!-- Pitch Shift Toggle -->
+          <div class="filter-item checkbox-item">
+            <input type="checkbox" id="pitch-checkbox" checked>
+            <div class="checkbox-label-group">
+              <label for="pitch-checkbox">Pitch shift audio (Matched to Speed)</label>
+              <p class="field-desc">Raises audio pitch dynamically to alter audio signature (disable to keep normal pitch).</p>
+            </div>
+          </div>
+
+          <!-- Saturation Slider -->
+          <div class="filter-item">
+            <div class="slider-header">
+              <label for="saturation-slider">Saturation modifier</label>
+              <span class="slider-value" id="saturation-val">1.05x</span>
+            </div>
+            <input type="range" id="saturation-slider" min="0.80" max="1.30" step="0.01" value="1.05">
+            <p class="field-desc">Adjusts visual color richness. Recommended: 1.05x.</p>
+          </div>
+
+          <!-- Contrast Slider -->
+          <div class="filter-item">
+            <div class="slider-header">
+              <label for="contrast-slider">Contrast modifier</label>
+              <span class="slider-value" id="contrast-val">1.03x</span>
+            </div>
+            <input type="range" id="contrast-slider" min="0.80" max="1.30" step="0.01" value="1.03">
+            <p class="field-desc">Adjusts dark and bright color borders. Recommended: 1.03x.</p>
+          </div>
+
+          <!-- Edge Crop Slider -->
+          <div class="filter-item">
+            <div class="slider-header">
+              <label for="crop-slider">Subtle edge crop (pixels)</label>
+              <span class="slider-value" id="crop-val">40px</span>
+            </div>
+            <input type="range" id="crop-slider" min="0" max="100" step="10" value="40">
+            <p class="field-desc">Crops a few pixels off the outer edge to defeat static border matchers.</p>
+          </div>
+        </div>
+
+        <!-- Task & Queue Controller -->
+        <div class="card status-card">
+          <h2 class="section-title">Task Engine</h2>
+          <div id="vps-info" class="vps-badge">VPS Storage: checking...</div>
+          
+          <div class="status-box" id="task-status-box">
+            <div class="status-indicator">
+              <span class="indicator-dot" id="status-dot"></span>
+              <span class="status-text" id="status-text">Idle</span>
+            </div>
+            <p class="status-description" id="status-desc">No active downloading or processing.</p>
+            
+            <!-- Progress Bar -->
+            <div class="progress-bar-container hidden" id="progress-container">
+              <div class="progress-bar-fill" id="progress-fill" style="width: 0%;"></div>
+            </div>
+            <div class="progress-percentage hidden" id="progress-text-percent">0% Completed</div>
+          </div>
+
+          <div class="control-actions">
+            <button id="start-task-btn" class="btn btn-accent w-full" disabled>Start Processing Series</button>
+            
+            <div class="completed-actions hidden" id="completed-box">
+              <a id="download-link" href="#" class="btn btn-success w-full" download>Download Merged MP4</a>
+              <button id="delete-task-btn" class="btn btn-danger w-full">Delete Outputs & Wipe Server Space</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Server Logs -->
+        <div class="card logs-card">
+          <h2 class="section-title">Processing Logs</h2>
+          <div class="logs-console" id="logs-console">
+            [System initialized. Standby.]
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Main JavaScript File -->
+  <script src="app.js"></script>
+</body>
+</html>
