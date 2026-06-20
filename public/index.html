@@ -26,8 +26,8 @@
       
       <!-- Left Column: Video Preview and Bounding Box Canvas -->
       <div class="left-column card">
-        <h2 class="section-title">Video blur selector</h2>
-        <p class="description">Click and drag over the video preview below to draw a box covering the watermark or icon.</p>
+        <h2 class="section-title">Video watermark selector</h2>
+        <p class="description">Click and drag over the video preview below to draw a box, then upload a logo to overlay on it.</p>
         
         <div class="video-wrapper">
           <video id="preview-video" muted playsinline></video>
@@ -40,11 +40,16 @@
 
         <div class="video-meta-row">
           <div class="meta-item">
-            <span class="meta-label">Selected Blur Region:</span>
-            <span id="coords-display" class="meta-val">None (No Blur)</span>
+            <span class="meta-label">Selected Overlay Region:</span>
+            <span id="coords-display" class="meta-val">None</span>
           </div>
-          <button id="clear-blur-btn" class="btn btn-secondary btn-sm" disabled>Clear Blur Box</button>
+          <div class="watermark-upload-group">
+            <label for="watermark-upload" class="btn btn-secondary btn-sm" style="cursor:pointer; margin-right: 5px;">Upload Logo (PNG)</label>
+            <input type="file" id="watermark-upload" accept="image/png, image/jpeg" style="display:none">
+            <button id="clear-blur-btn" class="btn btn-secondary btn-sm" disabled>Clear Box</button>
+          </div>
         </div>
+        <p id="watermark-file-name" style="margin-top: 5px; font-size: 0.85rem; color: var(--text-muted);"></p>
 
         <!-- Generated Command Preview -->
         <div class="command-box">

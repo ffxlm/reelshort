@@ -8,7 +8,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/downloads', express.static(path.join(__dirname, 'downloads')));
 
@@ -247,27 +248,67 @@ async function runTaskPipeline(episodes, settings) {
       
       // Construct Video and Audio Filter Arguments
       let videoFilters = [];
+      let mapArgs = [];
+      let input2Arg = null;
+      let hasOverlay = false;
+      let currentInStream = '0:v';
       
-      // Blur filter
-      if (settings.x !== undefined && settings.y !== undefined && settings.w > 0 && settings.h > 0) {
-        videoFilters.push(`crop=w=${settings.w}:h=${settings.h}:x=${settings.x}:y=${settings.y},boxblur=25:5[blurred]`);
-        videoFilters.push(`[0:v][blurred]overlay=x=${settings.x}:y=${settings.y}`);
+      // Overlay filter (Watermark or Black Box)
+      if (settings.zones && settings.zones.length > 0) {
+        hasOverlay = true;
+        
+        if (settings.watermarkBase64) {
+          // Write base64 to temp file once
+          const wmBuffer = Buffer.from(settings.watermarkBase64.split(',')[1], 'base64');
+          const wmPath = path.join(TEMP_DIR, 'watermark.png');
+          require('fs').writeFileSync(wmPath, wmBuffer);
+          input2Arg = wmPath;
+        }
+
+        settings.zones.forEach((zone, index) => {
+          if (settings.watermarkBase64) {
+            videoFilters.push(`[1:v]scale=${zone.w}:${zone.h}[wm${index}]`);
+            videoFilters.push(`[${currentInStream}][wm${index}]overlay=x=${zone.x}:y=${zone.y}[v_wm${index}]`);
+            currentInStream = `v_wm${index}`;
+          } else {
+            videoFilters.push(`[${currentInStream}]drawbox=x=${zone.x}:y=${zone.y}:w=${zone.w}:h=${zone.h}:color=black:t=fill[v_box${index}]`);
+            currentInStream = `v_box${index}`;
+          }
+        });
       }
       
-      // Speed adjustments (using speed factor)
+      let simpleVf = [];
+      // Speed adjustments
       if (settings.speed && settings.speed !== 1.0) {
         const setpts = (1 / settings.speed).toFixed(4);
-        videoFilters.push(`setpts=${setpts}*PTS`);
+        simpleVf.push(`setpts=${setpts}*PTS`);
       }
       
       // Color tweaks
       if (settings.contrast !== 1.0 || settings.saturation !== 1.0) {
-        videoFilters.push(`eq=contrast=${settings.contrast || 1.0}:saturation=${settings.saturation || 1.0}`);
+        simpleVf.push(`eq=contrast=${settings.contrast || 1.0}:saturation=${settings.saturation || 1.0}`);
       }
       
       // Edge crop
       if (settings.crop && settings.crop > 0) {
-        videoFilters.push(`crop=in_w-${settings.crop}:in_h-${settings.crop}`);
+        simpleVf.push(`crop=in_w-${settings.crop}:in_h-${settings.crop}`);
+      }
+
+      // Guarantee even dimensions
+      simpleVf.push('scale=trunc(iw/2)*2:trunc(ih/2)*2');
+
+      if (hasOverlay) {
+        if (simpleVf.length > 0) {
+          videoFilters.push(`[${currentInStream}]${simpleVf.join(',')}[v_final]`);
+          mapArgs.push('-map', '[v_final]');
+        } else {
+          mapArgs.push('-map', `[${currentInStream}]`);
+        }
+        mapArgs.push('-map', '0:a');
+      } else {
+        if (simpleVf.length > 0) {
+          videoFilters.push(simpleVf.join(','));
+        }
       }
 
       // Audio filters
@@ -293,11 +334,14 @@ async function runTaskPipeline(episodes, settings) {
         '-i', ep.url
       ];
 
+      if (input2Arg) {
+        ffmpegArgs.push('-i', input2Arg);
+      }
+
       if (videoFilters.length > 0) {
-        // If we did a complex blur overlay, we need filter_complex
-        const hasOverlay = settings.w > 0 && settings.h > 0;
         if (hasOverlay) {
           ffmpegArgs.push('-filter_complex', videoFilters.join(';'));
+          ffmpegArgs.push(...mapArgs);
         } else {
           ffmpegArgs.push('-vf', videoFilters.join(','));
         }
@@ -311,6 +355,8 @@ async function runTaskPipeline(episodes, settings) {
         '-c:v', 'libx264',
         '-preset', 'ultrafast',
         '-crf', '24',
+        '-r', '30',
+        '-pix_fmt', 'yuv420p',
         '-c:a', 'aac',
         tempFile
       );

@@ -52,9 +52,7 @@ let currentX = 0;
 let currentY = 0;
 
 // Coordinates mapped to displayed screen (scaled on submit)
-let displayCoords = null; // { x, y, w, h } relative to video element width/height
 let scaleFactors = { x: 1, y: 1 };
-let actualCoords = null;  // { x, y, w, h } relative to video actual resolution (720x1280)
 
 // Hls instance
 let hlsInstance = null;
@@ -199,6 +197,8 @@ function loadPreviewVideo(m3u8Url) {
   };
 }
 
+let drawnZones = [];
+
 // Coordinates Drawing and Canvas Math
 function resizeCanvasOverlay() {
   canvasEl.width = videoEl.clientWidth;
@@ -245,68 +245,86 @@ function handleEnd() {
   const y = Math.min(startY, currentY);
 
   if (w > 10 && h > 10) {
-    displayCoords = { x, y, w, h };
+    drawnZones.push({ displayCoords: { x, y, w, h } });
     calculateActualCoords();
     clearBlurBtn.disabled = false;
   }
+  drawOverlay();
 }
 
 function calculateActualCoords() {
-  if (!displayCoords || !videoEl.videoWidth) return;
+  if (drawnZones.length === 0 || !videoEl.videoWidth) return;
   
   // Resolution scaling factor (actual video res e.g. 720x1280 divided by displayed dimensions)
   scaleFactors.x = videoEl.videoWidth / videoEl.clientWidth;
   scaleFactors.y = videoEl.videoHeight / videoEl.clientHeight;
 
-  actualCoords = {
-    x: Math.round(displayCoords.x * scaleFactors.x),
-    y: Math.round(displayCoords.y * scaleFactors.y),
-    w: Math.round(displayCoords.w * scaleFactors.x),
-    h: Math.round(displayCoords.h * scaleFactors.y)
-  };
+  drawnZones.forEach(zone => {
+    let aCoords = {
+      x: Math.round(zone.displayCoords.x * scaleFactors.x),
+      y: Math.round(zone.displayCoords.y * scaleFactors.y),
+      w: Math.round(zone.displayCoords.w * scaleFactors.x),
+      h: Math.round(zone.displayCoords.h * scaleFactors.y)
+    };
 
-  // Limit bounds to actual video boundaries
-  actualCoords.x = Math.max(0, Math.min(videoEl.videoWidth, actualCoords.x));
-  actualCoords.y = Math.max(0, Math.min(videoEl.videoHeight, actualCoords.y));
-  actualCoords.w = Math.min(videoEl.videoWidth - actualCoords.x, actualCoords.w);
-  actualCoords.h = Math.min(videoEl.videoHeight - actualCoords.y, actualCoords.h);
+    // Limit bounds to actual video boundaries
+    aCoords.x = Math.max(0, Math.min(videoEl.videoWidth, aCoords.x));
+    aCoords.y = Math.max(0, Math.min(videoEl.videoHeight, aCoords.y));
+    aCoords.w = Math.min(videoEl.videoWidth - aCoords.x, aCoords.w);
+    aCoords.h = Math.min(videoEl.videoHeight - aCoords.y, aCoords.h);
+    
+    zone.actualCoords = aCoords;
+  });
 
-  coordsDisplay.textContent = `X: ${actualCoords.x}, Y: ${actualCoords.y}, W: ${actualCoords.w}, H: ${actualCoords.h} (${videoEl.videoWidth}x${videoEl.videoHeight})`;
+  coordsDisplay.textContent = `${drawnZones.length} Zone(s) Selected`;
   updateFFmpegCommandPreview();
 }
 
 function drawOverlay() {
   ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
   
+  drawnZones.forEach(zone => {
+    ctx.strokeStyle = '#d97706';
+    ctx.lineWidth = 2;
+    ctx.setLineDash([0]);
+    ctx.strokeRect(zone.displayCoords.x, zone.displayCoords.y, zone.displayCoords.w, zone.displayCoords.h);
+    ctx.fillStyle = 'rgba(217, 119, 6, 0.2)';
+    ctx.fillRect(zone.displayCoords.x, zone.displayCoords.y, zone.displayCoords.w, zone.displayCoords.h);
+  });
+  
   if (isDrawing) {
     ctx.strokeStyle = '#d97706';
     ctx.lineWidth = 2;
     ctx.setLineDash([6, 4]);
     ctx.strokeRect(startX, startY, currentX - startX, currentY - startY);
-  } else if (displayCoords) {
-    // Draw drawn persistent box
-    ctx.strokeStyle = '#d97706';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([0]);
-    ctx.strokeRect(displayCoords.x, displayCoords.y, displayCoords.w, displayCoords.h);
-    
-    // Muted overlay everywhere else
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.45)';
-    // Top box
-    ctx.fillRect(0, 0, canvasEl.width, displayCoords.y);
-    // Bottom box
-    ctx.fillRect(0, displayCoords.y + displayCoords.h, canvasEl.width, canvasEl.height - (displayCoords.y + displayCoords.h));
-    // Left box
-    ctx.fillRect(0, displayCoords.y, displayCoords.x, displayCoords.h);
-    // Right box
-    ctx.fillRect(displayCoords.x + displayCoords.w, displayCoords.y, canvasEl.width - (displayCoords.x + displayCoords.w), displayCoords.h);
   }
 }
 
+// File Upload Logic
+const watermarkUpload = document.getElementById('watermark-upload');
+const watermarkFileName = document.getElementById('watermark-file-name');
+let watermarkBase64 = null;
+
+watermarkUpload.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (file) {
+    watermarkFileName.textContent = `Logo selected: ${file.name}`;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      watermarkBase64 = ev.target.result;
+      updateFFmpegCommandPreview();
+    };
+    reader.readAsDataURL(file);
+  } else {
+    watermarkBase64 = null;
+    watermarkFileName.textContent = '';
+    updateFFmpegCommandPreview();
+  }
+});
+
 function clearBlurBox() {
-  displayCoords = null;
-  actualCoords = null;
-  coordsDisplay.textContent = 'None (No Blur)';
+  drawnZones = [];
+  coordsDisplay.textContent = 'None';
   clearBlurBtn.disabled = true;
   ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
   updateFFmpegCommandPreview();
@@ -321,18 +339,38 @@ function updateFFmpegCommandPreview() {
   const pitch = pitchCheckbox.checked;
 
   let vf = [];
-  if (actualCoords) {
-    vf.push(`crop=w=${actualCoords.w}:h=${actualCoords.h}:x=${actualCoords.x}:y=${actualCoords.y},boxblur=25:5[blurred]; [0:v][blurred]overlay=x=${actualCoords.x}:y=${actualCoords.y}`);
+  let mapArgs = '';
+  let currentInStream = '0:v';
+  
+  if (drawnZones.length > 0) {
+    drawnZones.forEach((zone, i) => {
+      const a = zone.actualCoords;
+      if (watermarkBase64) {
+        // Custom watermark image overlay
+        vf.push(`[1:v]scale=${a.w}:${a.h}[wm${i}]`);
+        vf.push(`[${currentInStream}][wm${i}]overlay=x=${a.x}:y=${a.y}[v_wm${i}]`);
+        currentInStream = `v_wm${i}`;
+      } else {
+        // Fallback to solid black box
+        vf.push(`[${currentInStream}]drawbox=x=${a.x}:y=${a.y}:w=${a.w}:h=${a.h}:color=black:t=fill[v_box${i}]`);
+        currentInStream = `v_box${i}`;
+      }
+    });
+    mapArgs = ` -map "[${currentInStream}]"`;
   }
+
+  // Chain other filters if needed
+  let simpleVf = [];
   if (speed !== 1.0) {
-    vf.push(`setpts=${(1/speed).toFixed(4)}*PTS`);
+    simpleVf.push(`setpts=${(1/speed).toFixed(4)}*PTS`);
   }
   if (contrast !== 1.0 || saturation !== 1.0) {
-    vf.push(`eq=contrast=${contrast}:saturation=${saturation}`);
+    simpleVf.push(`eq=contrast=${contrast}:saturation=${saturation}`);
   }
   if (crop > 0) {
-    vf.push(`crop=in_w-${crop}:in_h-${crop}`);
+    simpleVf.push(`crop=in_w-${crop}:in_h-${crop}`);
   }
+  simpleVf.push('scale=trunc(iw/2)*2:trunc(ih/2)*2');
 
   let af = [];
   if (speed !== 1.0) {
@@ -343,18 +381,21 @@ function updateFFmpegCommandPreview() {
     }
   }
 
-  let vfArg = '';
-  if (vf.length > 0) {
-    if (actualCoords) {
-      vfArg = ` -filter_complex "${vf.join(';')}"`;
-    } else {
-      vfArg = ` -vf "${vf.join(',')}"`;
+  let filterComplexString = '';
+  if (drawnZones.length > 0) {
+    if (simpleVf.length > 0) {
+      vf.push(`[${currentInStream}]${simpleVf.join(',')}[v_final]`);
+      mapArgs = ' -map "[v_final]"';
     }
+    filterComplexString = ` -filter_complex "${vf.join(';')}"${mapArgs}`;
+  } else if (simpleVf.length > 0) {
+    filterComplexString = ` -vf "${simpleVf.join(',')}"`;
   }
 
   let afArg = af.length > 0 ? ` -af "${af.join(',')}"` : '';
+  let input2Arg = (drawnZones.length > 0 && watermarkBase64) ? ' -i "watermark.png"' : '';
 
-  cmdPreview.textContent = `ffmpeg -i "ep01.m3u8"${vfArg}${afArg} -c:v libx264 -preset ultrafast -crf 24 -c:a aac output.ts`;
+  cmdPreview.textContent = `ffmpeg -i "ep01.m3u8"${input2Arg}${filterComplexString}${afArg} -c:v libx264 -preset ultrafast -crf 24 -r 30 -pix_fmt yuv420p -c:a aac output.ts`;
 }
 
 // System Status Poller
@@ -446,15 +487,13 @@ async function startTask() {
   if (!confirmRun) return;
 
   const settings = {
-    x: actualCoords ? actualCoords.x : undefined,
-    y: actualCoords ? actualCoords.y : undefined,
-    w: actualCoords ? actualCoords.w : 0,
-    h: actualCoords ? actualCoords.h : 0,
+    zones: drawnZones.map(z => z.actualCoords),
     speed: parseFloat(speedSlider.value),
     pitchShift: pitchCheckbox.checked,
     saturation: parseFloat(saturationSlider.value),
     contrast: parseFloat(contrastSlider.value),
-    crop: parseInt(cropSlider.value, 10)
+    crop: parseInt(cropSlider.value, 10),
+    watermarkBase64: watermarkBase64
   };
 
   try {
