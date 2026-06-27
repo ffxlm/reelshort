@@ -6,6 +6,10 @@ const videoPlaceholder = document.getElementById('video-placeholder');
 const coordsDisplay = document.getElementById('coords-display');
 const clearBlurBtn = document.getElementById('clear-blur-btn');
 const cmdPreview = document.getElementById('cmd-preview');
+const playerControlsContainer = document.getElementById('player-controls');
+const playPauseBtn = document.getElementById('play-pause-btn');
+const videoSeekSlider = document.getElementById('video-seek-slider');
+const videoTimeDisplay = document.getElementById('video-time-display');
 
 // Forms & Inputs
 const apiTokenInput = document.getElementById('api-token');
@@ -246,6 +250,7 @@ async function fetchSeries() {
 // Load HLS stream in preview player
 function loadPreviewVideo(m3u8Url) {
   videoPlaceholder.classList.add('hidden');
+  playerControlsContainer.classList.remove('hidden');
   
   if (hlsInstance) {
     hlsInstance.destroy();
@@ -272,6 +277,13 @@ function loadPreviewVideo(m3u8Url) {
     resizeCanvasOverlay();
     clearBlurBox(); // Clear coordinates when changing videos
   };
+}
+
+function formatTime(seconds) {
+  if (isNaN(seconds) || seconds === Infinity) return '00:00';
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
 let drawnZones = [];
@@ -1068,6 +1080,51 @@ function setupEventListeners() {
 
   // Sync canvas size on screen resize
   window.addEventListener('resize', resizeCanvasOverlay);
+
+  // Video Player Controls Logic
+  playPauseBtn.addEventListener('click', () => {
+    if (videoEl.paused) {
+      videoEl.play();
+    } else {
+      videoEl.pause();
+    }
+  });
+
+  videoEl.addEventListener('play', () => {
+    playPauseBtn.textContent = 'Pause';
+  });
+
+  videoEl.addEventListener('pause', () => {
+    playPauseBtn.textContent = 'Play';
+  });
+
+  let isUserSeeking = false;
+  videoEl.addEventListener('timeupdate', () => {
+    if (!isUserSeeking && videoEl.duration) {
+      const pct = (videoEl.currentTime / videoEl.duration) * 100;
+      videoSeekSlider.value = pct;
+      videoTimeDisplay.textContent = `${formatTime(videoEl.currentTime)} / ${formatTime(videoEl.duration)}`;
+    }
+  });
+
+  videoEl.addEventListener('durationchange', () => {
+    if (videoEl.duration) {
+      videoTimeDisplay.textContent = `${formatTime(videoEl.currentTime)} / ${formatTime(videoEl.duration)}`;
+    }
+  });
+
+  videoSeekSlider.addEventListener('input', () => {
+    isUserSeeking = true;
+    if (videoEl.duration) {
+      const targetTime = (videoSeekSlider.value / 100) * videoEl.duration;
+      videoEl.currentTime = targetTime;
+      videoTimeDisplay.textContent = `${formatTime(targetTime)} / ${formatTime(videoEl.duration)}`;
+    }
+  });
+
+  videoSeekSlider.addEventListener('change', () => {
+    isUserSeeking = false;
+  });
 }
 
 // Initialize on page load
