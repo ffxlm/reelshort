@@ -1142,18 +1142,24 @@ function setupEventListeners() {
 
   // Slider controls update values
   speedSlider.addEventListener('input', (e) => {
-    speedVal.textContent = `${parseFloat(e.target.value).toFixed(2)}x`;
+    const val = parseFloat(e.target.value);
+    speedVal.textContent = `${val.toFixed(2)}x`;
+    videoEl.playbackRate = val;
     updateFFmpegCommandPreview();
   });
   pitchCheckbox.addEventListener('change', updateFFmpegCommandPreview);
   
   saturationSlider.addEventListener('input', (e) => {
-    saturationVal.textContent = `${parseFloat(e.target.value).toFixed(2)}x`;
+    const val = parseFloat(e.target.value);
+    saturationVal.textContent = `${val.toFixed(2)}x`;
+    videoEl.style.filter = `contrast(${contrastSlider.value}) saturate(${val})`;
     updateFFmpegCommandPreview();
   });
   
   contrastSlider.addEventListener('input', (e) => {
-    contrastVal.textContent = `${parseFloat(e.target.value).toFixed(2)}x`;
+    const val = parseFloat(e.target.value);
+    contrastVal.textContent = `${val.toFixed(2)}x`;
+    videoEl.style.filter = `contrast(${val}) saturate(${saturationSlider.value})`;
     updateFFmpegCommandPreview();
   });
   
@@ -1186,6 +1192,8 @@ function setupEventListeners() {
 
   videoEl.addEventListener('play', () => {
     playPauseBtn.textContent = 'Pause';
+    videoEl.playbackRate = parseFloat(speedSlider.value);
+    videoEl.style.filter = `contrast(${contrastSlider.value}) saturate(${saturationSlider.value})`;
   });
 
   videoEl.addEventListener('pause', () => {
