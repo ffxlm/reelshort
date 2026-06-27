@@ -16,6 +16,16 @@ const seriesTitleEl = document.getElementById('series-title');
 const episodeCountInfo = document.getElementById('episode-count-info');
 const episodeSelect = document.getElementById('episode-select');
 
+// Episode Selector DOM Elements
+const episodesCheckboxContainer = document.getElementById('episodes-checkbox-container');
+const selectAllEpsBtn = document.getElementById('select-all-eps-btn');
+const selectNoneEpsBtn = document.getElementById('select-none-eps-btn');
+const rangeStartInput = document.getElementById('range-start');
+const rangeEndInput = document.getElementById('range-end');
+const applyRangeBtn = document.getElementById('apply-range-btn');
+const selectedSummaryText = document.getElementById('selected-summary-text');
+
+
 // Filters Sliders
 const speedSlider = document.getElementById('speed-slider');
 const speedVal = document.getElementById('speed-val');
@@ -45,7 +55,69 @@ const logsConsole = document.getElementById('logs-console');
 // Application State
 let activeSeries = null;
 let episodesList = []; // Clean list of { episode, url }
-let isDrawing = false;
+let selectedEpisodesState = []; // Track checkbox states [true, false, ...]
+
+// Render Checkboxes for Episode Selection
+function renderEpisodesCheckboxes() {
+  episodesCheckboxContainer.innerHTML = '';
+  selectedEpisodesState = new Array(episodesList.length).fill(true); // default: select all
+
+  episodesList.forEach((ep, idx) => {
+    const item = document.createElement('div');
+    item.className = 'episode-checkbox-item';
+
+    const cb = document.createElement('input');
+    cb.type = 'checkbox';
+    cb.id = `ep-checkbox-${idx}`;
+    cb.checked = true;
+    cb.dataset.index = idx;
+
+    cb.addEventListener('change', (e) => {
+      const index = parseInt(e.target.dataset.index, 10);
+      selectedEpisodesState[index] = e.target.checked;
+      updateSelectedSummary();
+    });
+
+    const label = document.createElement('label');
+    label.htmlFor = `ep-checkbox-${idx}`;
+
+    const span = document.createElement('span');
+    span.textContent = `${ep.name}`;
+
+    label.appendChild(span);
+    item.appendChild(cb);
+    item.appendChild(label);
+    episodesCheckboxContainer.appendChild(item);
+  });
+
+  // Default set range values in the helper inputs
+  if (episodesList.length > 0) {
+    rangeStartInput.value = 1;
+    rangeEndInput.value = episodesList.length;
+  }
+
+  updateSelectedSummary();
+}
+
+function updateSelectedSummary() {
+  const selectedCount = selectedEpisodesState.filter(Boolean).length;
+  selectedSummaryText.textContent = `${selectedCount} / ${episodesList.length} episodes selected`;
+  
+  if (selectedCount === 0) {
+    startTaskBtn.disabled = true;
+    startTaskBtn.textContent = 'Select at least 1 episode';
+  } else {
+    startTaskBtn.textContent = 'Start Processing Series';
+  }
+}
+
+let isDrawingNew = false;
+let isDragging = false;
+let isResizing = null; // 'nw', 'ne', 'se', 'sw'
+let selectedZoneIndex = null;
+let dragStartMouse = { x: 0, y: 0 };
+let dragStartCoords = { x: 0, y: 0, w: 0, h: 0 };
+
 let startX = 0;
 let startY = 0;
 let currentX = 0;
@@ -56,6 +128,9 @@ let scaleFactors = { x: 1, y: 1 };
 
 // Hls instance
 let hlsInstance = null;
+
+// Watermark Image object
+let watermarkImg = new Image();
 
 // Initialize app
 function init() {
@@ -151,6 +226,8 @@ async function fetchSeries() {
       episodeSelect.appendChild(opt);
     });
 
+    renderEpisodesCheckboxes();
+
     seriesInfoCard.classList.remove('hidden');
     startTaskBtn.disabled = false;
 
@@ -201,10 +278,19 @@ let drawnZones = [];
 
 // Coordinates Drawing and Canvas Math
 function resizeCanvasOverlay() {
+  if (!videoEl.videoWidth) return;
+  
   canvasEl.width = videoEl.clientWidth;
   canvasEl.height = videoEl.clientHeight;
+  canvasEl.style.width = videoEl.clientWidth + 'px';
+  canvasEl.style.height = videoEl.clientHeight + 'px';
+  canvasEl.style.left = videoEl.offsetLeft + 'px';
+  canvasEl.style.top = videoEl.offsetTop + 'px';
+  
   drawOverlay();
 }
+
+const HANDLE_SIZE = 8;
 
 function getCoords(e) {
   const rect = canvasEl.getBoundingClientRect();
@@ -216,83 +302,361 @@ function getCoords(e) {
   };
 }
 
+function getHandleCoords(x, y, w, h) {
+  return {
+    nw: { x: x, y: y },
+    ne: { x: x + w, y: y },
+    se: { x: x + w, y: y + h },
+    sw: { x: x, y: y + h }
+  };
+}
+
+function getHoveredHandle(mx, my, zone, scaleX, scaleY) {
+  if (!zone) return null;
+  const dx = zone.actualCoords.x * scaleX;
+  const dy = zone.actualCoords.y * scaleY;
+  const dw = zone.actualCoords.w * scaleX;
+  const dh = zone.actualCoords.h * scaleY;
+  
+  const handles = getHandleCoords(dx, dy, dw, dh);
+  const clickTolerance = HANDLE_SIZE + 6; // Allow slightly off clicks for touch
+  
+  let hovered = null;
+  Object.keys(handles).forEach(key => {
+    const h = handles[key];
+    const dist = Math.hypot(mx - h.x, my - h.y);
+    if (dist <= clickTolerance) {
+      hovered = key;
+    }
+  });
+  return hovered;
+}
+
+function isPointInZone(mx, my, zone, scaleX, scaleY) {
+  const dx = zone.actualCoords.x * scaleX;
+  const dy = zone.actualCoords.y * scaleY;
+  const dw = zone.actualCoords.w * scaleX;
+  const dh = zone.actualCoords.h * scaleY;
+  
+  return mx >= dx && mx <= dx + dw && my >= dy && my <= dy + dh;
+}
+
+function updateClearButton() {
+  if (drawnZones.length === 0) {
+    clearBlurBtn.disabled = true;
+    clearBlurBtn.textContent = 'Clear All';
+  } else {
+    clearBlurBtn.disabled = false;
+    if (selectedZoneIndex !== null) {
+      clearBlurBtn.textContent = 'Delete Selected';
+    } else {
+      clearBlurBtn.textContent = 'Clear All';
+    }
+  }
+}
+
 function handleStart(e) {
-  if (videoEl.readyState < 2) return; // Video not loaded
-  isDrawing = true;
+  if (videoEl.readyState < 2) return;
+  
+  // Prevent scrolling on touch devices when drawing
+  if (e.type === 'touchstart') {
+    e.preventDefault();
+  }
+
   const coords = getCoords(e);
   startX = coords.x;
   startY = coords.y;
   currentX = coords.x;
   currentY = coords.y;
+
+  const scaleX = canvasEl.width / videoEl.videoWidth;
+  const scaleY = canvasEl.height / videoEl.videoHeight;
+
+  // Check if click is on selected zone's handle
+  const activeZone = selectedZoneIndex !== null ? drawnZones[selectedZoneIndex] : null;
+  const hoveredHandle = getHoveredHandle(startX, startY, activeZone, scaleX, scaleY);
+
+  if (hoveredHandle) {
+    isResizing = hoveredHandle;
+    dragStartMouse = { x: startX, y: startY };
+    dragStartCoords = { ...activeZone.actualCoords };
+  } else {
+    // Check if clicked inside any zone
+    let clickedZoneIndex = null;
+    for (let i = drawnZones.length - 1; i >= 0; i--) {
+      if (isPointInZone(startX, startY, drawnZones[i], scaleX, scaleY)) {
+        clickedZoneIndex = i;
+        break;
+      }
+    }
+
+    if (clickedZoneIndex !== null) {
+      selectedZoneIndex = clickedZoneIndex;
+      isDragging = true;
+      dragStartMouse = { x: startX, y: startY };
+      dragStartCoords = { ...drawnZones[clickedZoneIndex].actualCoords };
+    } else {
+      // Clicked on empty space: start drawing new zone
+      selectedZoneIndex = null;
+      isDrawingNew = true;
+    }
+  }
+  
+  updateClearButton();
+  drawOverlay();
 }
 
 function handleMove(e) {
-  if (!isDrawing) return;
+  if (videoEl.readyState < 2) return;
+  
+  if (e.type === 'touchmove') {
+    e.preventDefault();
+  }
+
   const coords = getCoords(e);
   currentX = coords.x;
   currentY = coords.y;
-  drawOverlay();
+
+  const scaleX = canvasEl.width / videoEl.videoWidth;
+  const scaleY = canvasEl.height / videoEl.videoHeight;
+  const invScaleX = videoEl.videoWidth / canvasEl.width;
+  const invScaleY = videoEl.videoHeight / canvasEl.height;
+
+  if (isDragging) {
+    const activeZone = drawnZones[selectedZoneIndex];
+    if (activeZone) {
+      const dxCanvas = currentX - dragStartMouse.x;
+      const dyCanvas = currentY - dragStartMouse.y;
+      
+      const dxVideo = Math.round(dxCanvas * invScaleX);
+      const dyVideo = Math.round(dyCanvas * invScaleY);
+      
+      let newX = dragStartCoords.x + dxVideo;
+      let newY = dragStartCoords.y + dyVideo;
+      
+      newX = Math.max(0, Math.min(videoEl.videoWidth - dragStartCoords.w, newX));
+      newY = Math.max(0, Math.min(videoEl.videoHeight - dragStartCoords.h, newY));
+      
+      activeZone.actualCoords.x = newX;
+      activeZone.actualCoords.y = newY;
+      
+      updateFFmpegCommandPreview();
+      drawOverlay();
+    }
+    return;
+  }
+
+  if (isResizing) {
+    const activeZone = drawnZones[selectedZoneIndex];
+    if (activeZone) {
+      const dxCanvas = currentX - dragStartMouse.x;
+      const dyCanvas = currentY - dragStartMouse.y;
+      const dxVideo = Math.round(dxCanvas * invScaleX);
+      const dyVideo = Math.round(dyCanvas * invScaleY);
+
+      let newX = dragStartCoords.x;
+      let newY = dragStartCoords.y;
+      let newW = dragStartCoords.w;
+      let newH = dragStartCoords.h;
+
+      const hasAspect = (watermarkBase64 && watermarkImg && watermarkImg.complete && watermarkImg.naturalWidth);
+      const aspect = hasAspect ? (watermarkImg.width / watermarkImg.height) : (dragStartCoords.w / dragStartCoords.h);
+
+      if (isResizing === 'se') {
+        newW = dragStartCoords.w + dxVideo;
+        if (hasAspect) {
+          newH = Math.round(newW / aspect);
+        } else {
+          newH = dragStartCoords.h + dyVideo;
+        }
+      } else if (isResizing === 'sw') {
+        newX = dragStartCoords.x + dxVideo;
+        newW = dragStartCoords.w - dxVideo;
+        if (hasAspect) {
+          newH = Math.round(newW / aspect);
+        } else {
+          newH = dragStartCoords.h + dyVideo;
+        }
+      } else if (isResizing === 'ne') {
+        newY = dragStartCoords.y + dyVideo;
+        newW = dragStartCoords.w + dxVideo;
+        if (hasAspect) {
+          newH = Math.round(newW / aspect);
+          newY = dragStartCoords.y + (dragStartCoords.h - newH);
+        } else {
+          newH = dragStartCoords.h - dyVideo;
+        }
+      } else if (isResizing === 'nw') {
+        newX = dragStartCoords.x + dxVideo;
+        newW = dragStartCoords.w - dxVideo;
+        newY = dragStartCoords.y + dyVideo;
+        if (hasAspect) {
+          newH = Math.round(newW / aspect);
+          newY = dragStartCoords.y + (dragStartCoords.h - newH);
+        } else {
+          newH = dragStartCoords.h - dyVideo;
+        }
+      }
+
+      const minSize = 15;
+      if (newW < minSize) {
+        newW = minSize;
+        if (isResizing === 'sw' || isResizing === 'nw') {
+          newX = dragStartCoords.x + dragStartCoords.w - minSize;
+        }
+      }
+      if (newH < minSize) {
+        newH = minSize;
+        if (isResizing === 'ne' || isResizing === 'nw') {
+          newY = dragStartCoords.y + dragStartCoords.h - minSize;
+        }
+      }
+
+      if (newX < 0) {
+        newW += newX;
+        newX = 0;
+      }
+      if (newY < 0) {
+        newH += newY;
+        newY = 0;
+      }
+      if (newX + newW > videoEl.videoWidth) {
+        newW = videoEl.videoWidth - newX;
+      }
+      if (newY + newH > videoEl.videoHeight) {
+        newH = videoEl.videoHeight - newY;
+      }
+      
+      if (hasAspect) {
+        newH = Math.round(newW / aspect);
+        if (isResizing === 'ne' || isResizing === 'nw') {
+          newY = dragStartCoords.y + (dragStartCoords.h - newH);
+        }
+      }
+
+      activeZone.actualCoords = { x: newX, y: newY, w: newW, h: newH };
+      updateFFmpegCommandPreview();
+      drawOverlay();
+    }
+    return;
+  }
+
+  if (isDrawingNew) {
+    drawOverlay();
+    return;
+  }
+
+  let hoverCursor = 'crosshair';
+  const activeZoneHover = selectedZoneIndex !== null ? drawnZones[selectedZoneIndex] : null;
+  const hoveredHandle = getHoveredHandle(currentX, currentY, activeZoneHover, scaleX, scaleY);
+  
+  if (hoveredHandle) {
+    if (hoveredHandle === 'nw' || hoveredHandle === 'se') {
+      hoverCursor = 'nwse-resize';
+    } else {
+      hoverCursor = 'nesw-resize';
+    }
+  } else {
+    let foundZone = false;
+    for (let i = drawnZones.length - 1; i >= 0; i--) {
+      if (isPointInZone(currentX, currentY, drawnZones[i], scaleX, scaleY)) {
+        hoverCursor = 'move';
+        foundZone = true;
+        break;
+      }
+    }
+  }
+  canvasEl.style.cursor = hoverCursor;
 }
 
 function handleEnd() {
-  if (!isDrawing) return;
-  isDrawing = false;
-  
-  // Calculate bounding box properties
-  const w = Math.abs(currentX - startX);
-  const h = Math.abs(currentY - startY);
-  const x = Math.min(startX, currentX);
-  const y = Math.min(startY, currentY);
-
-  if (w > 10 && h > 10) {
-    drawnZones.push({ displayCoords: { x, y, w, h } });
-    calculateActualCoords();
-    clearBlurBtn.disabled = false;
+  if (isResizing) {
+    isResizing = null;
   }
-  drawOverlay();
-}
-
-function calculateActualCoords() {
-  if (drawnZones.length === 0 || !videoEl.videoWidth) return;
-  
-  // Resolution scaling factor (actual video res e.g. 720x1280 divided by displayed dimensions)
-  scaleFactors.x = videoEl.videoWidth / videoEl.clientWidth;
-  scaleFactors.y = videoEl.videoHeight / videoEl.clientHeight;
-
-  drawnZones.forEach(zone => {
-    let aCoords = {
-      x: Math.round(zone.displayCoords.x * scaleFactors.x),
-      y: Math.round(zone.displayCoords.y * scaleFactors.y),
-      w: Math.round(zone.displayCoords.w * scaleFactors.x),
-      h: Math.round(zone.displayCoords.h * scaleFactors.y)
-    };
-
-    // Limit bounds to actual video boundaries
-    aCoords.x = Math.max(0, Math.min(videoEl.videoWidth, aCoords.x));
-    aCoords.y = Math.max(0, Math.min(videoEl.videoHeight, aCoords.y));
-    aCoords.w = Math.min(videoEl.videoWidth - aCoords.x, aCoords.w);
-    aCoords.h = Math.min(videoEl.videoHeight - aCoords.y, aCoords.h);
+  if (isDragging) {
+    isDragging = false;
+  }
+  if (isDrawingNew) {
+    isDrawingNew = false;
     
-    zone.actualCoords = aCoords;
-  });
+    const w = Math.abs(currentX - startX);
+    const h = Math.abs(currentY - startY);
+    const x = Math.min(startX, currentX);
+    const y = Math.min(startY, currentY);
 
-  coordsDisplay.textContent = `${drawnZones.length} Zone(s) Selected`;
-  updateFFmpegCommandPreview();
+    if (w > 10 && h > 10 && videoEl.videoWidth) {
+      const scaleX = videoEl.videoWidth / canvasEl.width;
+      const scaleY = videoEl.videoHeight / canvasEl.height;
+
+      let aCoords = {
+        x: Math.round(x * scaleX),
+        y: Math.round(y * scaleY),
+        w: Math.round(w * scaleX),
+        h: Math.round(h * scaleY)
+      };
+
+      aCoords.x = Math.max(0, Math.min(videoEl.videoWidth, aCoords.x));
+      aCoords.y = Math.max(0, Math.min(videoEl.videoHeight, aCoords.y));
+      aCoords.w = Math.min(videoEl.videoWidth - aCoords.x, aCoords.w);
+      aCoords.h = Math.min(videoEl.videoHeight - aCoords.y, aCoords.h);
+
+      drawnZones.push({ actualCoords: aCoords });
+      selectedZoneIndex = drawnZones.length - 1;
+      coordsDisplay.textContent = `${drawnZones.length} Zone(s) Selected`;
+      updateFFmpegCommandPreview();
+    }
+  }
+  updateClearButton();
+  drawOverlay();
 }
 
 function drawOverlay() {
   ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
   
-  drawnZones.forEach(zone => {
-    ctx.strokeStyle = '#d97706';
-    ctx.lineWidth = 2;
-    ctx.setLineDash([0]);
-    ctx.strokeRect(zone.displayCoords.x, zone.displayCoords.y, zone.displayCoords.w, zone.displayCoords.h);
-    ctx.fillStyle = 'rgba(217, 119, 6, 0.2)';
-    ctx.fillRect(zone.displayCoords.x, zone.displayCoords.y, zone.displayCoords.w, zone.displayCoords.h);
+  if (!videoEl.videoWidth) return;
+
+  const scaleX = canvasEl.width / videoEl.videoWidth;
+  const scaleY = canvasEl.height / videoEl.videoHeight;
+  
+  drawnZones.forEach((zone, index) => {
+    const dx = zone.actualCoords.x * scaleX;
+    const dy = zone.actualCoords.y * scaleY;
+    const dw = zone.actualCoords.w * scaleX;
+    const dh = zone.actualCoords.h * scaleY;
+
+    if (watermarkBase64 && watermarkImg && watermarkImg.complete && watermarkImg.naturalWidth) {
+      ctx.drawImage(watermarkImg, dx, dy, dw, dh);
+    } else {
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.85)';
+      ctx.fillRect(dx, dy, dw, dh);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('BLUR BOX', dx + dw/2, dy + dh/2);
+    }
+
+    const isActive = (index === selectedZoneIndex);
+    ctx.strokeStyle = isActive ? '#d97706' : 'rgba(217, 119, 6, 0.4)';
+    ctx.lineWidth = isActive ? 2 : 1;
+    ctx.setLineDash(isActive ? [] : [4, 4]);
+    ctx.strokeRect(dx, dy, dw, dh);
+
+    if (isActive) {
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#d97706';
+      ctx.lineWidth = 1.5;
+      
+      const handles = getHandleCoords(dx, dy, dw, dh);
+      Object.keys(handles).forEach(key => {
+        const h = handles[key];
+        ctx.fillRect(h.x - HANDLE_SIZE/2, h.y - HANDLE_SIZE/2, HANDLE_SIZE, HANDLE_SIZE);
+        ctx.strokeRect(h.x - HANDLE_SIZE/2, h.y - HANDLE_SIZE/2, HANDLE_SIZE, HANDLE_SIZE);
+      });
+    }
   });
   
-  if (isDrawing) {
+  if (isDrawingNew) {
     ctx.strokeStyle = '#d97706';
     ctx.lineWidth = 2;
     ctx.setLineDash([6, 4]);
@@ -312,21 +676,59 @@ watermarkUpload.addEventListener('change', (e) => {
     const reader = new FileReader();
     reader.onload = (ev) => {
       watermarkBase64 = ev.target.result;
-      updateFFmpegCommandPreview();
+      watermarkImg = new Image();
+      watermarkImg.onload = () => {
+        // If there's no drawn zones yet, create one by default in the center!
+        if (drawnZones.length === 0 && videoEl.videoWidth) {
+          const defaultW = Math.round(videoEl.videoWidth * 0.2);
+          const defaultH = Math.round(defaultW / (watermarkImg.width / watermarkImg.height));
+          const defaultX = Math.round((videoEl.videoWidth - defaultW) / 2);
+          const defaultY = Math.round((videoEl.videoHeight - defaultH) / 2);
+          drawnZones.push({
+            actualCoords: {
+              x: defaultX,
+              y: defaultY,
+              w: defaultW,
+              h: defaultH
+            }
+          });
+          selectedZoneIndex = drawnZones.length - 1;
+          coordsDisplay.textContent = `${drawnZones.length} Zone(s) Selected`;
+        }
+        updateClearButton();
+        resizeCanvasOverlay();
+        updateFFmpegCommandPreview();
+      };
+      watermarkImg.src = watermarkBase64;
     };
     reader.readAsDataURL(file);
   } else {
     watermarkBase64 = null;
+    watermarkImg = new Image();
     watermarkFileName.textContent = '';
+    updateClearButton();
+    resizeCanvasOverlay();
     updateFFmpegCommandPreview();
   }
 });
 
 function clearBlurBox() {
-  drawnZones = [];
-  coordsDisplay.textContent = 'None';
-  clearBlurBtn.disabled = true;
-  ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
+  if (selectedZoneIndex !== null) {
+    drawnZones.splice(selectedZoneIndex, 1);
+    selectedZoneIndex = null;
+  } else {
+    drawnZones = [];
+    selectedZoneIndex = null;
+  }
+
+  if (drawnZones.length === 0) {
+    coordsDisplay.textContent = 'None';
+  } else {
+    coordsDisplay.textContent = `${drawnZones.length} Zone(s) Selected`;
+  }
+  
+  updateClearButton();
+  resizeCanvasOverlay();
   updateFFmpegCommandPreview();
 }
 
@@ -468,7 +870,8 @@ async function pollStatus() {
 
       fetchSeriesBtn.disabled = false;
       if (activeSeries) {
-        startTaskBtn.disabled = false;
+        const selectedCount = selectedEpisodesState.filter(Boolean).length;
+        startTaskBtn.disabled = (selectedCount === 0);
       }
     }
 
@@ -483,8 +886,34 @@ async function pollStatus() {
 async function startTask() {
   if (!activeSeries || episodesList.length === 0) return;
 
-  const confirmRun = confirm(`Start downloading and processing ${episodesList.length} episodes?\n\nFFmpeg processing will run in the background on the server.`);
+  const selectedEpisodes = episodesList.filter((ep, idx) => selectedEpisodesState[idx]);
+  if (selectedEpisodes.length === 0) {
+    alert('Please select at least one episode to download.');
+    return;
+  }
+
+  const confirmRun = confirm(`Start downloading and processing ${selectedEpisodes.length} selected episodes?\n\nFFmpeg processing will run in the background on the server.`);
   if (!confirmRun) return;
+
+  // Compute a smart seriesName containing the episode range/status
+  let rangeName = activeSeries.lang ? `Series_${activeSeries.lang}` : 'Series';
+  if (selectedEpisodes.length === 1) {
+    rangeName += `_ep_${selectedEpisodes[0].episode}`;
+  } else {
+    // Check if contiguous range
+    let isContiguous = true;
+    for (let i = 1; i < selectedEpisodes.length; i++) {
+      if (selectedEpisodes[i].episode !== selectedEpisodes[i - 1].episode + 1) {
+        isContiguous = false;
+        break;
+      }
+    }
+    if (isContiguous) {
+      rangeName += `_eps_${selectedEpisodes[0].episode}-${selectedEpisodes[selectedEpisodes.length - 1].episode}`;
+    } else {
+      rangeName += `_selected_${selectedEpisodes.length}_eps`;
+    }
+  }
 
   const settings = {
     zones: drawnZones.map(z => z.actualCoords),
@@ -503,8 +932,8 @@ async function startTask() {
       body: JSON.stringify({
         token: apiTokenInput.value.trim(),
         seriesId: seriesIdInput.value.trim(),
-        seriesName: activeSeries.lang ? `Series_${activeSeries.lang}` : 'Series',
-        episodes: episodesList,
+        seriesName: rangeName,
+        episodes: selectedEpisodes,
         settings
       })
     });
@@ -549,6 +978,52 @@ function setupEventListeners() {
   startTaskBtn.addEventListener('click', startTask);
   deleteTaskBtn.addEventListener('click', deleteTask);
   clearBlurBtn.addEventListener('click', clearBlurBox);
+
+  // Episode Selection Actions
+  selectAllEpsBtn.addEventListener('click', () => {
+    const checkboxes = episodesCheckboxContainer.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach((cb) => {
+      cb.checked = true;
+      const index = parseInt(cb.dataset.index, 10);
+      selectedEpisodesState[index] = true;
+    });
+    updateSelectedSummary();
+  });
+
+  selectNoneEpsBtn.addEventListener('click', () => {
+    const checkboxes = episodesCheckboxContainer.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach((cb) => {
+      cb.checked = false;
+      const index = parseInt(cb.dataset.index, 10);
+      selectedEpisodesState[index] = false;
+    });
+    updateSelectedSummary();
+  });
+
+  applyRangeBtn.addEventListener('click', () => {
+    const start = parseInt(rangeStartInput.value, 10);
+    const end = parseInt(rangeEndInput.value, 10);
+    if (isNaN(start) || isNaN(end) || start < 1 || end < 1 || start > end) {
+      alert('Please enter a valid range (Start must be <= End).');
+      return;
+    }
+
+    const checkboxes = episodesCheckboxContainer.querySelectorAll('input[type="checkbox"]');
+    checkboxes.forEach((cb) => {
+      const index = parseInt(cb.dataset.index, 10);
+      const epNum = episodesList[index].episode;
+      const currentEpNum = typeof epNum === 'number' ? epNum : (index + 1);
+
+      if (currentEpNum >= start && currentEpNum <= end) {
+        cb.checked = true;
+        selectedEpisodesState[index] = true;
+      } else {
+        cb.checked = false;
+        selectedEpisodesState[index] = false;
+      }
+    });
+    updateSelectedSummary();
+  });
 
   // Selector dropdown
   episodeSelect.addEventListener('change', (e) => {

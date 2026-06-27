@@ -86,6 +86,32 @@
               <!-- Dynamically populated -->
             </select>
           </div>
+
+          <!-- Episode Multi-Selector for Download Selection -->
+          <div class="episode-multi-selector">
+            <label>Select Episodes to Download & Merge:</label>
+            
+            <div class="quick-select-row">
+              <button type="button" id="select-all-eps-btn" class="btn btn-secondary btn-sm">Select All</button>
+              <button type="button" id="select-none-eps-btn" class="btn btn-secondary btn-sm">Clear All</button>
+              
+              <div class="range-select-group">
+                <span>Range:</span>
+                <input type="number" id="range-start" min="1" placeholder="Start" class="range-input">
+                <span>to</span>
+                <input type="number" id="range-end" min="1" placeholder="End" class="range-input">
+                <button type="button" id="apply-range-btn" class="btn btn-primary btn-sm">Apply</button>
+              </div>
+            </div>
+
+            <div class="episodes-checkbox-list" id="episodes-checkbox-container">
+              <!-- Dynamically populated checkboxes -->
+            </div>
+            
+            <div class="selected-summary-text" id="selected-summary-text">
+              0 / 0 episodes selected
+            </div>
+          </div>
         </div>
 
         <!-- FFmpeg Customization Panel -->
