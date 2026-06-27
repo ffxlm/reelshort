@@ -52,8 +52,7 @@ const progressFill = document.getElementById('progress-fill');
 const progressTextPercent = document.getElementById('progress-text-percent');
 const startTaskBtn = document.getElementById('start-task-btn');
 const completedBox = document.getElementById('completed-box');
-const downloadLink = document.getElementById('download-link');
-const deleteTaskBtn = document.getElementById('delete-task-btn');
+const downloadsListContainer = document.getElementById('downloads-list-container');
 const logsConsole = document.getElementById('logs-console');
 
 // Application State
@@ -812,11 +811,103 @@ function updateFFmpegCommandPreview() {
   cmdPreview.textContent = `ffmpeg -i "ep01.m3u8"${input2Arg}${filterComplexString}${afArg} -c:v libx264 -preset ultrafast -crf 24 -r 30 -pix_fmt yuv420p -c:a aac output.ts`;
 }
 
+function renderDownloads(downloads) {
+  if (!downloadsListContainer) return;
+  
+  if (downloads.length === 0) {
+    downloadsListContainer.innerHTML = `
+      <div class="no-downloads-placeholder">
+        <p>No completed files available. Start processing a series to generate outputs.</p>
+      </div>
+    `;
+    return;
+  }
+  
+  let html = '';
+  downloads.forEach(file => {
+    const remainingSeconds = Math.floor(file.remainingMs / 1000);
+    let timeStr = '';
+    if (remainingSeconds <= 0) {
+      timeStr = 'Expired';
+    } else {
+      const hours = Math.floor(remainingSeconds / 3600);
+      const minutes = Math.floor((remainingSeconds % 3600) / 60);
+      timeStr = `${hours}h ${minutes}m left`;
+    }
+    
+    let badgeClass = 'badge-success';
+    if (remainingSeconds < 3600 * 2) {
+      badgeClass = 'badge-danger';
+    } else if (remainingSeconds < 3600 * 6) {
+      badgeClass = 'badge-warning';
+    }
+    
+    html += `
+      <div class="download-item">
+        <div class="download-item-info">
+          <span class="download-filename" title="${file.fileName}">${file.fileName}</span>
+          <div class="download-metadata">
+            <span class="download-filesize">${file.fileSizeMB} MB</span>
+            <span class="download-timer ${badgeClass}">${timeStr}</span>
+          </div>
+        </div>
+        <div class="download-item-actions">
+          <a href="${file.downloadUrl}" class="btn btn-success btn-sm" download>Download</a>
+          <button class="btn btn-danger btn-sm delete-file-btn" data-filename="${file.fileName}">Delete</button>
+        </div>
+      </div>
+    `;
+  });
+  
+  downloadsListContainer.innerHTML = html;
+  
+  // Bind click handlers for delete buttons
+  downloadsListContainer.querySelectorAll('.delete-file-btn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      const fileName = e.target.dataset.filename;
+      deleteSpecificFile(fileName);
+    });
+  });
+}
+
+async function deleteSpecificFile(fileName) {
+  const confirmDelete = confirm(`Are you sure you want to delete "${fileName}" from the server?`);
+  if (!confirmDelete) return;
+  
+  try {
+    const res = await fetch('/api/delete-file', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileName })
+    });
+    const data = await res.json();
+    if (data.error) {
+      throw new Error(data.error);
+    }
+    addSystemLog(`Deleted file from server: ${fileName}`);
+    // Fetch and render immediately
+    const dlRes = await fetch('/api/downloads');
+    const downloads = await dlRes.json();
+    renderDownloads(downloads);
+  } catch (err) {
+    alert(`Failed to delete file: ${err.message}`);
+  }
+}
+
 // System Status Poller
 async function pollStatus() {
   try {
     const res = await fetch('/api/task-status');
     const state = await res.json();
+    
+    // Fetch and render downloads list
+    try {
+      const dlRes = await fetch('/api/downloads');
+      const downloads = await dlRes.json();
+      renderDownloads(downloads);
+    } catch (err) {
+      console.error('Error fetching downloads:', err);
+    }
 
     // Update VPS Storage Badge
     vpsInfo.textContent = `VPS Storage: ${state.vpsFreeSpaceGB} GB Free`;
@@ -851,34 +942,38 @@ async function pollStatus() {
       // Disable actions during run
       startTaskBtn.disabled = true;
       fetchSeriesBtn.disabled = true;
-      completedBox.classList.add('hidden');
     } 
     else if (state.status === 'completed') {
       statusDesc.textContent = `Processing for "${state.seriesName}" completed successfully! Download your file below.`;
       progressContainer.classList.add('hidden');
       progressTextPercent.classList.add('hidden');
       
-      startTaskBtn.disabled = true;
-      completedBox.classList.remove('hidden');
-      downloadLink.href = state.downloadUrl;
+      fetchSeriesBtn.disabled = false;
+      if (activeSeries) {
+        const selectedCount = selectedEpisodesState.filter(Boolean).length;
+        startTaskBtn.disabled = (selectedCount === 0);
+      } else {
+        startTaskBtn.disabled = true;
+      }
     } 
     else if (state.status === 'failed') {
       statusDesc.textContent = `Task failed. Error: ${state.error}`;
       progressContainer.classList.add('hidden');
       progressTextPercent.classList.add('hidden');
 
-      startTaskBtn.disabled = false;
       fetchSeriesBtn.disabled = false;
-      completedBox.classList.remove('hidden'); // Show wipe button so they can retry
-      downloadLink.classList.add('hidden');     // Hide download since it failed
+      if (activeSeries) {
+        const selectedCount = selectedEpisodesState.filter(Boolean).length;
+        startTaskBtn.disabled = (selectedCount === 0);
+      } else {
+        startTaskBtn.disabled = true;
+      }
     } 
     else {
       // Idle state
       statusDesc.textContent = 'Server is standby. Awaiting configuration.';
       progressContainer.classList.add('hidden');
       progressTextPercent.classList.add('hidden');
-      completedBox.classList.add('hidden');
-      downloadLink.classList.remove('hidden'); // Reset download visual
 
       fetchSeriesBtn.disabled = false;
       if (activeSeries) {
@@ -988,7 +1083,6 @@ function addSystemLog(msg) {
 function setupEventListeners() {
   fetchSeriesBtn.addEventListener('click', fetchSeries);
   startTaskBtn.addEventListener('click', startTask);
-  deleteTaskBtn.addEventListener('click', deleteTask);
   clearBlurBtn.addEventListener('click', clearBlurBox);
 
   // Episode Selection Actions

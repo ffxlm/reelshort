@@ -224,6 +224,63 @@ app.post('/api/task-delete', (req, res) => {
   res.json({ message: 'Task wiped and output files deleted.', state: taskState });
 });
 
+app.get('/api/downloads', (req, res) => {
+  if (!fs.existsSync(DOWNLOADS_DIR)) {
+    return res.json([]);
+  }
+  
+  try {
+    const files = fs.readdirSync(DOWNLOADS_DIR);
+    const now = Date.now();
+    const oneDay = 24 * 60 * 60 * 1000;
+    
+    const downloads = files.map(file => {
+      const filePath = path.join(DOWNLOADS_DIR, file);
+      const stat = fs.statSync(filePath);
+      
+      const fileAgeMs = now - stat.mtimeMs;
+      const remainingMs = oneDay - fileAgeMs;
+      
+      return {
+        fileName: file,
+        fileSizeMB: (stat.size / (1024 * 1024)).toFixed(2),
+        createdTimeMs: stat.mtimeMs,
+        remainingMs: remainingMs,
+        downloadUrl: `/downloads/${file}`
+      };
+    }).filter(item => {
+      return item.fileName.endsWith('.mp4') && item.remainingMs > 0;
+    }).sort((a, b) => b.createdTimeMs - a.createdTimeMs);
+    
+    res.json(downloads);
+  } catch (err) {
+    console.error('Error listing downloads:', err);
+    res.status(500).json({ error: 'Failed to list downloads.' });
+  }
+});
+
+app.post('/api/delete-file', (req, res) => {
+  const { fileName } = req.body;
+  if (!fileName) {
+    return res.status(400).json({ error: 'Filename is required.' });
+  }
+  
+  const filePath = path.join(DOWNLOADS_DIR, fileName);
+  if (fs.existsSync(filePath)) {
+    try {
+      fs.unlinkSync(filePath);
+      addLog(`Deleted file from server: ${fileName}`);
+      res.json({ message: 'File deleted successfully.' });
+    } catch (err) {
+      console.error(`Error deleting file ${fileName}:`, err);
+      res.status(500).json({ error: `Error deleting file: ${err.message}` });
+    }
+  } else {
+    res.status(404).json({ error: 'File not found.' });
+  }
+});
+
+
 // Primary background processing pipeline
 async function runTaskPipeline(episodes, settings) {
   try {

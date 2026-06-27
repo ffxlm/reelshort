@@ -63,6 +63,15 @@
           <span class="box-label">Live FFmpeg Command Preview (Single Episode Filter):</span>
           <code id="cmd-preview">ffmpeg -i "input.m3u8" -c:v libx264 -preset ultrafast -c:a aac output.mp4</code>
         </div>
+
+        <!-- Completed Actions (Download & Wipe) -->
+        <div class="card completed-card" id="completed-box">
+          <h3 class="section-title text-accent" style="font-size: 1.1rem; border-left-color: var(--accent); margin-bottom: 0.5rem;">Available Downloads</h3>
+          <p class="description" style="margin-top: 0; margin-bottom: 1rem;">Outputs are stored on VPS and automatically deleted after 24 hours to save disk space.</p>
+          <div class="downloads-list" id="downloads-list-container">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
       </div>
 
       <!-- Right Column: API Settings, Filters, Status -->
@@ -196,11 +205,6 @@
 
           <div class="control-actions">
             <button id="start-task-btn" class="btn btn-accent w-full" disabled>Start Processing Series</button>
-            
-            <div class="completed-actions hidden" id="completed-box">
-              <a id="download-link" href="#" class="btn btn-success w-full" download>Download Merged MP4</a>
-              <button id="delete-task-btn" class="btn btn-danger w-full">Delete Outputs & Wipe Server Space</button>
-            </div>
           </div>
         </div>
 

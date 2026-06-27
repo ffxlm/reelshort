@@ -686,3 +686,98 @@ code {
   white-space: nowrap;
 }
 
+/* Completed Card below command-box */
+.completed-card {
+  margin-top: 1rem;
+  gap: 0.75rem !important;
+}
+
+/* Downloads List Styles */
+.downloads-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.download-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+  gap: 0.75rem;
+}
+
+.download-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.download-filename {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text-main);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.download-metadata {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.download-filesize {
+  font-family: monospace;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.download-timer {
+  font-size: 0.7rem;
+  font-weight: 600;
+  padding: 0.1rem 0.4rem;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+.badge-success {
+  background-color: rgba(82, 196, 26, 0.15);
+  color: var(--text-success);
+  border: 1px solid var(--border-success);
+}
+
+.badge-warning {
+  background-color: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.badge-danger {
+  background-color: rgba(255, 77, 79, 0.15);
+  color: var(--text-danger);
+  border: 1px solid var(--border-danger);
+}
+
+.download-item-actions {
+  display: flex;
+  gap: 0.4rem;
+  flex-shrink: 0;
+}
+
+.no-downloads-placeholder {
+  text-align: center;
+  padding: 1.5rem;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+}
+
